@@ -1,0 +1,50 @@
+name: nightly
+
+# Per-repo data refresh. The fetch steps differ per kit (sources, CLI
+# subcommands, env); only the commit-and-push tail is shared. Copy this file
+# into the kit, set the cron to fire AFTER the upstream data is published, and
+# fill in the fetch steps.
+
+on:
+  schedule:
+    # Set to fire after the upstream source publishes (UTC). Document the ET
+    # offset and why this time.
+    - cron: "0 12 * * 1-5"
+  workflow_dispatch: {}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      # SEC fetchers require a bare "<name> <email>" User-Agent (no URL/parens).
+      KIT_SEC_USER_AGENT: "REPLACE_KIT ${{ secrets.CONTACT_EMAIL || 'frederic.miesegaes@gmail.com' }}"
+      RUST_LOG: info
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build CLI
+        run: cargo build --release --bin REPLACE_KIT-cli
+
+      # ── Per-kit fetch steps (continue-on-error so one bad source does not
+      #    abort the run); regenerate the manifest last. ──
+      - name: Refresh data
+        run: ./target/release/REPLACE_KIT-cli REPLACE_REFRESH_SUBCOMMAND
+        continue-on-error: true
+      - name: Regenerate manifest
+        run: ./target/release/REPLACE_KIT-cli manifest
+
+      # ── Shared commit-and-push tail (identical across kits) ──
+      - name: Commit if changed
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "github-actions"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "no changes to commit"
+          else
+            git commit -m "chore(data): nightly $(date -u +%Y-%m-%d)"
+            git push
+          fi

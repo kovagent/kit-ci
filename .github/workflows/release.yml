@@ -1,0 +1,68 @@
+name: release
+
+# Reusable release for the *kit data libraries. Triggered by the caller on a
+# version tag. Gates on the full CI suite, then publishes each crate to
+# crates.io in dependency order (lib before cli).
+#   jobs.release.uses: userFRM/kit-ci/.github/workflows/release.yml@main
+#   with:    { crates: "curvekit curvekit-cli" }
+#   secrets: { CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }} }
+
+on:
+  workflow_call:
+    inputs:
+      crates:
+        description: "Space-separated crate names to publish, in dependency order (lib first)."
+        type: string
+        required: true
+    secrets:
+      CARGO_REGISTRY_TOKEN:
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  gate:
+    name: CI gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - run: cargo test --doc
+      - run: cargo build --release
+
+  publish:
+    name: Publish to crates.io
+    needs: gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish crates in order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          first=1
+          for c in ${{ inputs.crates }}; do
+            if [ "$first" -eq 0 ]; then
+              # let the previous crate propagate before its dependent publishes
+              sleep 20
+            fi
+            echo "::group::cargo publish -p $c"
+            cargo publish -p "$c"
+            echo "::endgroup::"
+            first=0
+          done

@@ -1,0 +1,73 @@
+name: security-nightly
+
+# Reusable daily security sweep — fresh advisory-db pull, audit + deny against
+# the committed Cargo.lock, opens a tracking issue on a new finding. Catches
+# advisories filed against already-pinned versions without a code push.
+# Caller schedules the cron and grants issues:write:
+#   jobs.sweep.uses: userFRM/kit-ci/.github/workflows/security-nightly.yml@main
+#   permissions: { issues: write, contents: read }
+
+on:
+  workflow_call: {}
+
+jobs:
+  audit:
+    name: cargo-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+  notify-on-failure:
+    name: open-issue-on-finding
+    needs: [audit, deny]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const today = new Date().toISOString().slice(0, 10);
+            const title = `security-nightly: advisory finding ${today}`;
+            const body = [
+              `Nightly security sweep failed on ${today}.`,
+              ``,
+              `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              ``,
+              `Triage:`,
+              `1. Identify the advisory(ies) flagged by cargo-audit / cargo-deny.`,
+              `2. If a transitive dep needs upgrade — bump the lockfile.`,
+              `3. If the advisory is benign / unfixable — add to audit.toml + deny.toml with rationale.`,
+              `4. Re-run via workflow_dispatch to confirm green.`,
+            ].join('\n');
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'security',
+            });
+            if (existing.find(i => i.title === title)) {
+              core.info('Issue already exists for today.');
+              return;
+            }
+            const { data } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['security'],
+            });
+            core.info(`Opened issue #${data.number}`);

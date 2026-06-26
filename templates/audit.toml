@@ -1,0 +1,6 @@
+# cargo-audit advisory exceptions for the *kit data libraries.
+# Single source of truth for `cargo audit`; keep IN SYNC with deny.toml.
+# Prefer a real upgrade first; only ignore with a documented rationale.
+
+[advisories]
+ignore = []
