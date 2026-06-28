@@ -16,6 +16,10 @@ data commits.
 
 ## Wiring a kit
 
+Pin `uses:` to a full kit-ci commit SHA, not a branch or tag, so a change to
+kit-ci cannot alter a kit's CI or a tagged release. Replace `<commit-sha>`
+below with the SHA you are pinning to.
+
 `.github/workflows/ci.yml`:
 
 ```yaml
@@ -25,7 +29,7 @@ on:
   pull_request: { branches: [main] }
 jobs:
   ci:
-    uses: userFRM/kit-ci/.github/workflows/ci.yml@main
+    uses: userFRM/kit-ci/.github/workflows/ci.yml@<commit-sha>
     with:
       msrv: "1.86"                 # omit to skip the MSRV job
       manifest_check: |            # omit to skip; fail on data drift
@@ -40,7 +44,7 @@ name: Release
 on: { push: { tags: ["v[0-9]*"] } }
 jobs:
   release:
-    uses: userFRM/kit-ci/.github/workflows/release.yml@main
+    uses: userFRM/kit-ci/.github/workflows/release.yml@<commit-sha>
     with: { crates: "indexkit indexkit-cli" }   # lib before cli
     secrets: { CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }} }
 ```
@@ -54,7 +58,7 @@ on:
   workflow_dispatch: {}
 jobs:
   sweep:
-    uses: userFRM/kit-ci/.github/workflows/security-nightly.yml@main
+    uses: userFRM/kit-ci/.github/workflows/security-nightly.yml@<commit-sha>
     permissions: { issues: write, contents: read }
 ```
 

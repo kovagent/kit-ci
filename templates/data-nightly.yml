@@ -20,7 +20,9 @@ jobs:
       contents: write
     env:
       # SEC fetchers require a bare "<name> <email>" User-Agent (no URL/parens).
-      KIT_SEC_USER_AGENT: "REPLACE_KIT ${{ secrets.CONTACT_EMAIL || 'frederic.miesegaes@gmail.com' }}"
+      # Set the CONTACT_EMAIL secret; the fallback is a generic placeholder that
+      # SEC still accepts, so no personal address is baked into a public file.
+      KIT_SEC_USER_AGENT: "REPLACE_KIT ${{ secrets.CONTACT_EMAIL || 'contact@example.com' }}"
       RUST_LOG: info
     steps:
       - uses: actions/checkout@v6

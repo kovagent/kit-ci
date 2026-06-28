@@ -49,6 +49,11 @@ jobs:
       - run: cargo test --doc
       # Full verification build here, with NO registry token in the environment.
       - run: cargo build --release
+      # Verify the packaged crates (honours [package].exclude / readme and
+      # compiles from the packaged sources) so a broken package layout cannot
+      # reach the token-bearing upload. Token-free; the workspace verifies all
+      # members together so the cli resolves the lib by path.
+      - run: cargo package --workspace
 
   publish:
     name: Publish to crates.io
