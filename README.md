@@ -41,13 +41,22 @@ jobs:
 
 ```yaml
 name: Release
-on: { push: { tags: ["v[0-9]*"] } }
+on:
+  push:
+    tags: ["v[0-9]*"]
 jobs:
   release:
     uses: userFRM/kit-ci/.github/workflows/release.yml@<commit-sha>
-    with: { crates: "indexkit indexkit-cli" }   # lib before cli
-    secrets: { CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }} }
+    with:
+      crates: "indexkit indexkit-cli"   # lib before cli
+    secrets:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 ```
+
+Use block-style `on:` / `with:` / `secrets:` here. A flow-style `secrets: { K:
+${{ ... }} }` puts the `${{ }}` braces inside the YAML flow mapping, whose
+closing braces collide with the mapping terminator and make GitHub flag the
+file on every push.
 
 `.github/workflows/security-nightly.yml`:
 
