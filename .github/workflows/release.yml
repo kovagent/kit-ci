@@ -1,9 +1,9 @@
 name: release
 
 # Reusable release for the *kit data libraries. Triggered by the caller on a
-# version tag. Gates on the full CI suite, then publishes each crate to
-# crates.io in dependency order (lib before cli).
-#   jobs.release.uses: userFRM/kit-ci/.github/workflows/release.yml@main
+# version tag. Gates on the full build/test suite (no secrets), then uploads
+# each crate to crates.io in dependency order.
+#   jobs.release.uses: userFRM/kit-ci/.github/workflows/release.yml@<sha>
 #   with:    { crates: "curvekit curvekit-cli" }
 #   secrets: { CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }} }
 
@@ -18,6 +18,9 @@ on:
       CARGO_REGISTRY_TOKEN:
         required: true
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -28,6 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -42,6 +47,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo test --doc
+      # Full verification build here, with NO registry token in the environment.
       - run: cargo build --release
 
   publish:
@@ -50,19 +56,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
+      # Upload only. `--no-verify` skips the local verification compile, so no
+      # crate or dependency build script runs while the registry token is in
+      # the environment. The gate job above already compiled and tested.
       - name: Publish crates in order
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CRATES: ${{ inputs.crates }}
         run: |
           first=1
-          for c in ${{ inputs.crates }}; do
+          for c in $CRATES; do
+            case "$c" in
+              *[!a-zA-Z0-9_-]*)
+                echo "::error::refusing to publish crate name with unexpected characters: $c"
+                exit 1
+                ;;
+            esac
             if [ "$first" -eq 0 ]; then
               # let the previous crate propagate before its dependent publishes
               sleep 20
             fi
             echo "::group::cargo publish -p $c"
-            cargo publish -p "$c"
+            cargo publish -p "$c" --no-verify
             echo "::endgroup::"
             first=0
           done

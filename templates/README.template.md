@@ -23,7 +23,7 @@ REPLACE_ONE_LINER. Served from bundled parquet with on-demand fetch and a local 
 REPLACE_KIT = "REPLACE_VERSION"
 ```
 
-Until it is published to crates.io, depend on the repository directly:
+To track unreleased changes, depend on the repository directly:
 
 ```toml
 REPLACE_KIT = { git = "https://github.com/userFRM/REPLACE_KIT" }

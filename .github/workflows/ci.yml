@@ -1,8 +1,12 @@
 name: ci
 
 # Reusable CI for the *kit data libraries. Callers invoke it with
-#   jobs.ci.uses: userFRM/kit-ci/.github/workflows/ci.yml@main
+#   jobs.ci.uses: userFRM/kit-ci/.github/workflows/ci.yml@<sha>
 # Requires the caller repo to ship deny.toml + audit.toml at its root.
+#
+# inputs.manifest_check is arbitrary shell and runs in the lint/build context.
+# It is set by the caller's own committed workflow file (first-party, not
+# reachable by fork-PR runtime input), and every job here runs read-only.
 
 on:
   workflow_call:
@@ -12,9 +16,12 @@ on:
         type: string
         default: ""
       manifest_check:
-        description: "Shell script that fails if committed data drifts from regenerated artifacts. Empty skips the job."
+        description: "Shell that fails if committed data drifts from regenerated artifacts. Empty skips the job. First-party callers only."
         type: string
         default: ""
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -27,6 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -37,6 +46,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -64,6 +75,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ inputs.msrv }}
@@ -82,6 +95,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
         with:
@@ -97,6 +112,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
@@ -106,6 +123,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo install cargo-audit --locked
+      # Library crates do not commit Cargo.lock; generate it so the audit is
+      # deterministic instead of relying on cargo-audit's implicit resolve.
+      - run: cargo generate-lockfile
       - run: cargo audit
