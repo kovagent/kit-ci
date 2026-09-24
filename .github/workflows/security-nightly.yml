@@ -1,8 +1,9 @@
 name: security-nightly
 
 # Reusable daily security sweep — fresh advisory-db pull, audit + deny against
-# the resolved dependency graph, opens a tracking issue on a new finding.
-#   jobs.sweep.uses: userFRM/kit-ci/.github/workflows/security-nightly.yml@<sha>
+# the resolved dependency graph. A failing sweep opens one tracking issue, or
+# comments on the one already open; a passing sweep closes it.
+#   jobs.sweep.uses: kovagent/kit-ci/.github/workflows/security-nightly.yml@<sha>
 #   permissions: { issues: write, contents: read }
 
 on:
@@ -52,33 +53,95 @@ jobs:
         with:
           script: |
             const today = new Date().toISOString().slice(0, 10);
-            const title = `security-nightly: advisory finding ${today}`;
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            // One tracking issue per repository, however many days the sweep
+            // stays red: a dated issue per day buries the finding in copies.
+            const open = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'security',
+            });
+            // Newest first; repositories that ran the older per-day notifier
+            // can hold many.
+            const tracking = open
+              .filter(i => i.title.startsWith('security-nightly: advisory finding'))
+              .sort((a, b) => b.number - a.number)[0];
+            if (tracking) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: tracking.number,
+                body: `Still failing on ${today}: ${run}`,
+              });
+              core.info(`Commented on #${tracking.number}`);
+              return;
+            }
             const body = [
               `Nightly security sweep failed on ${today}.`,
               ``,
-              `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              `Run: ${run}`,
               ``,
               `Triage:`,
               `1. Identify the advisory(ies) flagged by cargo-audit / cargo-deny.`,
               `2. If a transitive dep needs upgrade — bump the lockfile.`,
               `3. If the advisory is benign / unfixable — add to audit.toml + deny.toml with rationale.`,
               `4. Re-run via workflow_dispatch to confirm green.`,
+              ``,
+              `Later failing runs are added here as comments; the first passing sweep closes this issue.`,
             ].join('\n');
-            const { data: existing } = await github.rest.issues.listForRepo({
+            const { data } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `security-nightly: advisory finding ${today}`,
+              body,
+              labels: ['security'],
+            });
+            core.info(`Opened issue #${data.number}`);
+
+  close-on-pass:
+    name: close-issue-on-pass
+    needs: [audit, deny]
+    if: success()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const open = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               state: 'open',
               labels: 'security',
             });
-            if (existing.find(i => i.title === title)) {
-              core.info('Issue already exists for today.');
-              return;
-            }
-            const { data } = await github.rest.issues.create({
+            const tracking = open
+              .filter(i => i.title.startsWith('security-nightly: advisory finding'))
+              .sort((a, b) => b.number - a.number);
+            if (tracking.length === 0) return;
+            // One comment, on the newest; the older copies the per-day
+            // notifier left are closed with it.
+            const older = tracking.length - 1;
+            await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title,
-              body,
-              labels: ['security'],
+              issue_number: tracking[0].number,
+              body: older > 0
+                ? `The sweep passes: ${run}\n\nClosing this issue and ${older} older copies of it.`
+                : `The sweep passes: ${run}`,
             });
-            core.info(`Opened issue #${data.number}`);
+            for (const issue of tracking) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: 'closed',
+                state_reason: 'completed',
+              });
+              core.info(`Closed #${issue.number}`);
+              // Paced under GitHub's secondary rate limit on writes.
+              await new Promise(r => setTimeout(r, 1000));
+            }
