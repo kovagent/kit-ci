@@ -62,7 +62,11 @@ jobs:
               state: 'open',
               labels: 'security',
             });
-            const tracking = open.find(i => i.title.startsWith('security-nightly: advisory finding'));
+            // Newest first; repositories that ran the older per-day notifier
+            // can hold many.
+            const tracking = open
+              .filter(i => i.title.startsWith('security-nightly: advisory finding'))
+              .sort((a, b) => b.number - a.number)[0];
             if (tracking) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
@@ -114,13 +118,22 @@ jobs:
               state: 'open',
               labels: 'security',
             });
-            for (const issue of open.filter(i => i.title.startsWith('security-nightly: advisory finding'))) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issue.number,
-                body: `The sweep passes: ${run}`,
-              });
+            const tracking = open
+              .filter(i => i.title.startsWith('security-nightly: advisory finding'))
+              .sort((a, b) => b.number - a.number);
+            if (tracking.length === 0) return;
+            // One comment, on the newest; the older copies the per-day
+            // notifier left are closed with it.
+            const older = tracking.length - 1;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: tracking[0].number,
+              body: older > 0
+                ? `The sweep passes: ${run}\n\nClosing this issue and ${older} older copies of it.`
+                : `The sweep passes: ${run}`,
+            });
+            for (const issue of tracking) {
               await github.rest.issues.update({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -129,4 +142,6 @@ jobs:
                 state_reason: 'completed',
               });
               core.info(`Closed #${issue.number}`);
+              // Paced under GitHub's secondary rate limit on writes.
+              await new Promise(r => setTimeout(r, 1000));
             }
